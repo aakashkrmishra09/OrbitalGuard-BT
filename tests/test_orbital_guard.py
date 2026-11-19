@@ -1,6 +1,8 @@
-﻿import pytest
+﻿import numpy as np
+import pytest
 from fastapi.testclient import TestClient
 
+from src.anomaly_engine.detector import SimplexAnomalyDetector
 from src.bt_engine.tree import BehaviourTreeController, SystemMode
 from src.mission_planner.validator import (
     DeterministicSafetyGuard,
@@ -120,6 +122,7 @@ def test_root_and_preset_simulation_endpoints():
     assert blackout_resp.status_code == 200
     assert blackout_resp.json()["final_mode"] == "SAFE_HOLD"
 
+
 def test_simplex_ml_intercepts_subtle_bearing_drift_before_hard_limit():
     client = TestClient(app)
     resp = client.post("/simulation/run-preset/subtle_bearing_drift")
@@ -128,3 +131,68 @@ def test_simplex_ml_intercepts_subtle_bearing_drift_before_hard_limit():
     assert data["final_mode"] == "PREEMPTIVE_HOLD"
     assert data["last_fault_code"] == "ADVISORY_MULTI_SENSOR_DRIFT"
     assert any(step["mode"] == "PREEMPTIVE_HOLD" for step in data["history"])
+
+
+def test_conformal_false_alarm_rate_stays_bounded_on_nominal_frames():
+    detector = SimplexAnomalyDetector(alpha=0.01, seed=42)
+    rng = np.random.default_rng(123)
+
+    temp = 41.0
+    anomalies = 0
+    total_ticks = 200
+
+    for tick in range(1, total_ticks + 1):
+        temp = float(np.clip(temp + rng.normal(0.18, 0.08), 39.5, 47.0))
+        current = float(np.clip(3.25 + 0.016 * temp + rng.normal(0.0, 0.12), 3.4, 4.4))
+        vision = float(np.clip(rng.normal(0.93, 0.018), 0.86, 0.99))
+        frame = TelemetryFrame(
+            tick=tick,
+            link_active=True,
+            vision_confidence=vision,
+            joint_temp_c=temp,
+            actuator_current_a=current,
+        )
+        assessment = detector.score_frame(frame)
+        if assessment.is_anomalous:
+            anomalies += 1
+
+    empirical_false_alarm_rate = anomalies / total_ticks
+    assert empirical_false_alarm_rate <= 0.05
+
+
+def test_m_of_n_hysteresis_ignores_isolated_single_tick_spike():
+    ctrl = BehaviourTreeController(mission=_valid_mission(), target_ticks=4)
+
+    frames = [
+        TelemetryFrame(tick=1, link_active=True, vision_confidence=0.94, joint_temp_c=41.0, actuator_current_a=3.85),
+        # Single isolated current spike inside hard safe bounds (8.0 A)
+        TelemetryFrame(tick=2, link_active=True, vision_confidence=0.93, joint_temp_c=41.5, actuator_current_a=5.65),
+        # Subsequent nominal ticks should keep 2-of-3 count below threshold and reach COMPLETED
+        TelemetryFrame(tick=3, link_active=True, vision_confidence=0.94, joint_temp_c=41.8, actuator_current_a=3.88),
+        TelemetryFrame(tick=4, link_active=True, vision_confidence=0.95, joint_temp_c=42.1, actuator_current_a=3.90),
+    ]
+
+    for frame in frames:
+        ctrl.step(frame)
+
+    assert ctrl.history[1].mode != SystemMode.PREEMPTIVE_HOLD
+    assert ctrl.mode == SystemMode.COMPLETED
+
+
+def test_deterministic_hard_fault_overrides_preemptive_hold():
+    ctrl = BehaviourTreeController(mission=_valid_mission(), target_ticks=5)
+
+    frames = [
+        TelemetryFrame(tick=1, link_active=True, vision_confidence=0.94, joint_temp_c=41.0, actuator_current_a=3.85),
+        TelemetryFrame(tick=2, link_active=True, vision_confidence=0.93, joint_temp_c=41.4, actuator_current_a=3.90),
+        TelemetryFrame(tick=3, link_active=True, vision_confidence=0.92, joint_temp_c=43.8, actuator_current_a=5.15),
+        TelemetryFrame(tick=4, link_active=True, vision_confidence=0.91, joint_temp_c=46.5, actuator_current_a=5.65),
+        TelemetryFrame(tick=5, link_active=True, vision_confidence=0.90, joint_temp_c=78.5, actuator_current_a=5.80),
+    ]
+
+    for frame in frames:
+        ctrl.step(frame)
+
+    assert ctrl.history[3].mode == SystemMode.PREEMPTIVE_HOLD
+    assert ctrl.mode == SystemMode.SAFE_HOLD
+    assert ctrl.last_fault_code == "FAULT_THERMAL_EXCURSION"
