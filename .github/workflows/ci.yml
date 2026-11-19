@@ -19,5 +19,7 @@ jobs:
           python-version: "3.11"
       - name: Install dependencies
         run: pip install -r requirements.txt
+      - name: Byte-compile check
+        run: python -m compileall src tests
       - name: Run automated verification suite
         run: python -m pytest -v
