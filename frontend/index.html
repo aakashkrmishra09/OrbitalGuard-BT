@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>OrbitalGuard-BT — Autonomous Space Robotics V&V & FDIR Console</title>
+  <link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="container topbar-inner">
+      <div class="brand">
+        <span class="brand-dot"></span>
+        <span>OrbitalGuard-BT</span>
+        <span class="version-tag">v0.3.0</span>
+      </div>
+      <nav class="nav-links">
+        <a href="#overview">Mission Context</a>
+        <a href="#validator">Safety Guard</a>
+        <a href="#fault-lab">FDIR Fault Lab</a>
+        <a href="#architecture">V&amp;V Architecture</a>
+        <a href="/docs" class="nav-cta">API Docs (/docs)</a>
+      </nav>
+    </div>
+  </header>
+
+  <main>
+    <!-- Hero / Landing Section -->
+    <section id="overview" class="hero">
+      <div class="container">
+        <div class="eyebrow">Autonomous Space Robotics • FDIR &amp; Pre-Execution V&amp;V</div>
+        <h1>Deterministic Guardrails &amp; Behaviour Tree Fault Recovery for Next-Gen Orbital &amp; Lunar Missions</h1>
+        <p class="hero-copy">
+          Built to demonstrate verification-first autonomy for on-orbit servicing, lunar surface robotics,
+          and deep-space manipulator operations where communication latency requires safe onboard fault handling.
+        </p>
+        <div class="hero-actions">
+          <a href="#fault-lab" class="btn btn-primary">Launch FDIR Fault Lab</a>
+          <a href="#validator" class="btn">Test Safety Guardrails</a>
+          <a href="https://github.com/aakashkrmishra09/OrbitalGuard-BT" target="_blank" rel="noreferrer" class="btn">GitHub Source</a>
+        </div>
+
+        <div class="domain-strip">
+          <div class="domain-card">
+            <span class="domain-label">On-Orbit Servicing &amp; Capture</span>
+            <p>Pre-execution kinematic &amp; keep-out zone enforcement before manipulator slews near target spacecraft.</p>
+          </div>
+          <div class="domain-card">
+            <span class="domain-label">Lunar Surface &amp; Gateway Ops</span>
+            <p>Bounded <code>HOLD_REACQUIRE</code> recovery for high-contrast solar glare and sensor confidence drops.</p>
+          </div>
+          <div class="domain-card">
+            <span class="domain-label">Latency-Tolerant FDIR</span>
+            <p>Deterministic latching into <code>SAFE_HOLD</code> during telemetry link blackouts, thermal spikes, or overcurrent.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Interactive Pre-Execution Safety Guard -->
+    <section id="validator" class="section">
+      <div class="container">
+        <div class="section-head">
+          <div>
+            <span class="section-tag">01 • Pre-Execution Gatekeeper</span>
+            <h2>Deterministic Mission Safety Validator</h2>
+          </div>
+          <p class="section-desc">
+            Test how <code>DeterministicSafetyGuard</code> evaluates command envelopes against physical limits
+            (<code>&plusmn;135&deg;</code> joint travel, <code>&le;5.0&deg;/s</code> slew rate, <code>&ge;20%</code> battery SoC, and restricted keep-out sectors).
+          </p>
+        </div>
+
+        <div class="split-grid">
+          <form id="validator-form" class="panel">
+            <div class="form-grid">
+              <label>
+                Mission ID
+                <input type="text" id="val-mission-id" value="MSN-LUNAR-ARM-04" required />
+              </label>
+              <label>
+                Target Sector
+                <input type="text" id="val-sector" value="SOLAR_ARRAY_B4" required />
+              </label>
+              <label>
+                Target Joint Angle (deg)
+                <input type="number" step="0.5" id="val-joint-deg" value="65.0" required />
+              </label>
+              <label>
+                Max Joint Velocity (deg/s)
+                <input type="number" step="0.1" id="val-velocity" value="3.5" required />
+              </label>
+              <label>
+                Battery State-of-Charge (%)
+                <input type="number" step="1" id="val-battery" value="84" required />
+              </label>
+              <label>
+                Restricted Keep-Out Zones (comma-separated)
+                <input type="text" id="val-zones" value="KEEPOUT_K2, THERMAL_SHIELD_A1" />
+              </label>
+            </div>
+
+            <div class="form-actions">
+              <button type="submit" class="btn btn-primary">Validate Command Envelope</button>
+              <button type="button" class="btn" id="btn-fill-violation">Load Keep-Out Violation Case</button>
+            </div>
+          </form>
+
+          <div class="panel">
+            <h3>Validation Telemetry Output</h3>
+            <p class="panel-sub">Live response from <code>POST /mission/validate</code></p>
+            <div id="validator-result" class="result-box">
+              Submit a mission command to verify envelope approval or inspect deterministic rejection codes.
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Interactive FDIR & Behaviour Tree Fault Lab -->
+    <section id="fault-lab" class="section section-alt">
+      <div class="container">
+        <div class="section-head">
+          <div>
+            <span class="section-tag">02 • Onboard Autonomy &amp; FDIR</span>
+            <h2>Behaviour Tree Fault-Injection Lab</h2>
+          </div>
+          <p class="section-desc">
+            Replay nominal operations or inject realistic orbital/lunar anomalies to observe tick-by-tick
+            Behaviour Tree node execution and state transitions.
+          </p>
+        </div>
+
+        <div class="panel">
+          <div class="preset-bar">
+            <button class="btn btn-primary" onclick="runPreset('nominal')">Nominal Inspection Run</button>
+            <button class="btn" onclick="runPreset('glare_recovery')">Solar Glare &rarr; HOLD_REACQUIRE &rarr; Recover</button>
+            <button class="btn" onclick="runPreset('blackout_safe_hold')">Link Blackout &rarr; Latched SAFE_HOLD</button>
+          </div>
+
+          <div id="sim-summary" class="summary-strip">
+            <span>Select a mission scenario above to run live telemetry evaluation.</span>
+          </div>
+
+          <div id="sim-table-wrap" class="table-wrap">
+            <p class="muted-note">No telemetry trace executed yet.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Engineering Architecture & V&V -->
+    <section id="architecture" class="section">
+      <div class="container">
+        <div class="section-head">
+          <div>
+            <span class="section-tag">03 • System Design &amp; V&amp;V</span>
+            <h2>Modular Architecture &amp; Automated Verification</h2>
+          </div>
+        </div>
+
+        <div class="arch-grid">
+          <div class="panel">
+            <h3>Mission Planner &amp; Safety Guard</h3>
+            <p><code>src/mission_planner/validator.py</code></p>
+            <p class="arch-copy">Pydantic-typed command contracts paired with hard deterministic envelope checks before any execution tick begins.</p>
+          </div>
+          <div class="panel">
+            <h3>Behaviour Tree State Engine</h3>
+            <p><code>src/bt_engine/tree.py</code></p>
+            <p class="arch-copy">Explicit state transitions across <code>NOMINAL_INSPECTION</code>, <code>HOLD_REACQUIRE</code>, <code>SAFE_HOLD</code>, and <code>COMPLETED</code>.</p>
+          </div>
+          <div class="panel">
+            <h3>Telemetry &amp; Fault Stream</h3>
+            <p><code>src/perception_sim/telemetry.py</code></p>
+            <p class="arch-copy">Frame-by-frame health evaluator monitoring link heartbeat, vision confidence, actuator thermal limits, and motor current.</p>
+          </div>
+          <div class="panel">
+            <h3>CI Verification Harness</h3>
+            <p><code>tests/test_orbital_guard.py</code></p>
+            <p class="arch-copy">Automated <code>pytest</code> and byte-compile checks running in GitHub Actions on every push to verify safety invariants.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <div class="container footer-inner">
+      <span>OrbitalGuard-BT • Engineered by Aakash Kumar Mishra</span>
+      <div class="footer-links">
+        <a href="/health">/health</a>
+        <a href="/api/info">/api/info</a>
+        <a href="/docs">/docs</a>
+      </div>
+    </div>
+  </footer>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

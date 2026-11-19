@@ -1,4 +1,8 @@
+from pathlib import Path
+
 from fastapi import FastAPI, HTTPException
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from src.bt_engine.tree import BehaviourTreeController
@@ -9,14 +13,18 @@ from src.mission_planner.validator import (
 )
 from src.perception_sim.telemetry import TelemetryFrame, TelemetryStream
 
+FRONTEND_DIR = Path(__file__).resolve().parents[2] / "frontend"
+
 app = FastAPI(
     title="OrbitalGuard-BT Telemetry & Verification API",
     description=(
         "Deterministic pre-execution safety guard, Behaviour Tree fault-recovery "
         "controller, and telemetry fault-injection verification harness."
     ),
-    version="0.2.0",
+    version="0.3.0",
 )
+app.mount("/static", StaticFiles(directory=str(FRONTEND_DIR)), name="static")
+
 guard = DeterministicSafetyGuard()
 
 
@@ -28,8 +36,8 @@ class SimulationRequest(BaseModel):
 
 def _default_mission() -> MissionCommand:
     return MissionCommand(
-        mission_id="MSN-SOLAR-B4",
-        target_sector="SOLAR_B4",
+        mission_id="MSN-LUNAR-ARM-04",
+        target_sector="SOLAR_ARRAY_B4",
         target_joint_deg=65.0,
         max_joint_velocity_deg_s=3.5,
         battery_soc_pct=84.0,
@@ -93,14 +101,20 @@ def _execute_simulation(
 
 
 @app.get("/")
-def root() -> dict:
+def root() -> FileResponse:
+    return FileResponse(FRONTEND_DIR / "index.html")
+
+
+@app.get("/api/info")
+def api_info() -> dict:
     return {
         "service": "OrbitalGuard-BT",
-        "version": "0.2.0",
+        "version": "0.3.0",
         "status": "running",
         "docs": "/docs",
         "endpoints": [
             "/health",
+            "/api/info",
             "/mission/validate",
             "/simulation/run",
             "/simulation/run-preset/{preset_name}",

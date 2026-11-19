@@ -106,7 +106,11 @@ def test_root_and_preset_simulation_endpoints():
 
     root_resp = client.get("/")
     assert root_resp.status_code == 200
-    assert root_resp.json()["service"] == "OrbitalGuard-BT"
+    assert "OrbitalGuard-BT" in root_resp.text
+
+    info_resp = client.get("/api/info")
+    assert info_resp.status_code == 200
+    assert info_resp.json()["service"] == "OrbitalGuard-BT"
 
     glare_resp = client.post("/simulation/run-preset/glare_recovery")
     assert glare_resp.status_code == 200
