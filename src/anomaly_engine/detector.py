@@ -40,6 +40,7 @@ class SimplexAnomalyDetector:
         self.gmm = GaussianMixture(
             n_components=3,
             covariance_type="full",
+            reg_covar=1e-4,
             random_state=seed,
         )
 

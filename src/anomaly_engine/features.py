@@ -32,14 +32,18 @@ class SlidingFeatureExtractor:
         if len(frames) >= 2:
             temp_grad = frames[-1].joint_temp_c - frames[-2].joint_temp_c
         else:
-            temp_grad = 0.25
+            temp_grad = 0.20
 
-        # Expected nominal thermal-current baseline: ~3.8A around 42C
-        expected_current = 3.2 + 0.016 * frame.joint_temp_c
+        # Expected nominal thermal-current baseline (~3.9A around 42-44C)
+        expected_current = 3.25 + 0.015 * frame.joint_temp_c
         current_coupling = frame.actuator_current_a - expected_current
 
-        vis_values = [f.vision_confidence for f in frames]
-        vis_jitter = float(np.std(vis_values)) if len(vis_values) >= 2 else 0.01
+        # Only include frames with nominal vision (>= 0.70) so glare recovery doesn't create artificial jitter
+        healthy_vis = [f.vision_confidence for f in frames if f.vision_confidence >= 0.70]
+        if len(healthy_vis) >= 2:
+            vis_jitter = float(np.std(healthy_vis))
+        else:
+            vis_jitter = 0.015
 
         return np.array(
             [

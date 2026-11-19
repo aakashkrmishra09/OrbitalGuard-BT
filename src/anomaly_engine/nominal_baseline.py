@@ -11,11 +11,11 @@ def generate_nominal_feature_matrix(seed: int = 42) -> np.ndarray:
 
     # Regime 1: Nominal inspection (200 ticks)
     extractor.reset()
-    temp = 40.5
+    temp = 41.0
     for t in range(1, 201):
-        temp = min(46.0, temp + float(rng.normal(0.18, 0.08)))
-        current = float(np.clip(3.2 + 0.016 * temp + rng.normal(0.0, 0.12), 3.4, 4.4))
-        vision = float(np.clip(rng.normal(0.93, 0.018), 0.86, 0.99))
+        temp = float(np.clip(temp + rng.normal(0.25, 0.18), 39.0, 50.0))
+        current = float(np.clip(3.25 + 0.016 * temp + rng.normal(0.0, 0.18), 3.4, 4.6))
+        vision = float(np.clip(rng.normal(0.93, 0.025), 0.85, 0.99))
         frame = TelemetryFrame(
             tick=t,
             link_active=True,
@@ -29,9 +29,9 @@ def generate_nominal_feature_matrix(seed: int = 42) -> np.ndarray:
     extractor.reset()
     temp = 42.0
     for t in range(1, 151):
-        temp = min(48.0, temp + float(rng.normal(0.22, 0.09)))
-        current = float(np.clip(3.35 + 0.016 * temp + rng.normal(0.0, 0.14), 3.6, 4.6))
-        vision = float(np.clip(rng.normal(0.90, 0.022), 0.84, 0.97))
+        temp = float(np.clip(temp + rng.normal(0.30, 0.20), 40.0, 52.0))
+        current = float(np.clip(3.35 + 0.016 * temp + rng.normal(0.0, 0.20), 3.5, 4.8))
+        vision = float(np.clip(rng.normal(0.90, 0.03), 0.82, 0.98))
         frame = TelemetryFrame(
             tick=t,
             link_active=True,
@@ -45,9 +45,9 @@ def generate_nominal_feature_matrix(seed: int = 42) -> np.ndarray:
     extractor.reset()
     temp = 39.5
     for t in range(1, 151):
-        temp = max(38.0, temp + float(rng.normal(0.05, 0.06)))
-        current = float(np.clip(3.1 + 0.016 * temp + rng.normal(0.0, 0.10), 3.2, 4.1))
-        vision = float(np.clip(rng.normal(0.95, 0.015), 0.88, 0.99))
+        temp = float(np.clip(temp + rng.normal(0.10, 0.15), 37.5, 46.0))
+        current = float(np.clip(3.15 + 0.015 * temp + rng.normal(0.0, 0.16), 3.2, 4.3))
+        vision = float(np.clip(rng.normal(0.95, 0.02), 0.87, 0.99))
         frame = TelemetryFrame(
             tick=t,
             link_active=True,
