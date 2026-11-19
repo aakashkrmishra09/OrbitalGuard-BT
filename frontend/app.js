@@ -1,6 +1,6 @@
 function modePillClass(mode) {
   if (mode === "COMPLETED" || mode === "APPROVED") return "pill pill-ok";
-  if (mode === "HOLD_REACQUIRE") return "pill pill-warn";
+  if (mode === "HOLD_REACQUIRE" || mode === "PREEMPTIVE_HOLD") return "pill pill-warn";
   if (mode === "SAFE_HOLD" || mode === "REJECTED") return "pill pill-err";
   return "pill";
 }
@@ -91,6 +91,7 @@ async function runPreset(preset) {
           <td>${h.status}</td>
           <td>${(h.vision_confidence * 100).toFixed(0)}%</td>
           <td>${h.link_active ? "UP" : "DOWN"}</td>
+          <td>${(h.anomaly_severity * 100).toFixed(0)}% (${h.anomaly_driver})</td>
           <td>${h.reason}</td>
         </tr>
       `
@@ -107,6 +108,7 @@ async function runPreset(preset) {
             <th>Status</th>
             <th>Vision</th>
             <th>Telemetry Link</th>
+            <th>ML Severity</th>
             <th>Decision Rationale</th>
           </tr>
         </thead>

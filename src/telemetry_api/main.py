@@ -66,6 +66,14 @@ def _preset_frames(preset_name: str) -> tuple[int, list[TelemetryFrame]]:
             TelemetryFrame(tick=2, link_active=False, vision_confidence=0.94, joint_temp_c=41.0, actuator_current_a=3.7, fault_injected="LINK_LOSS"),
             TelemetryFrame(tick=3, link_active=True, vision_confidence=0.94, joint_temp_c=41.2, actuator_current_a=3.6),
         ]
+    if key == "subtle_bearing_drift":
+        return 5, [
+            TelemetryFrame(tick=1, link_active=True, vision_confidence=0.94, joint_temp_c=41.0, actuator_current_a=3.85),
+            TelemetryFrame(tick=2, link_active=True, vision_confidence=0.93, joint_temp_c=41.4, actuator_current_a=3.90),
+            TelemetryFrame(tick=3, link_active=True, vision_confidence=0.92, joint_temp_c=43.8, actuator_current_a=5.15, fault_injected="BEARING_FRICTION_DRIFT"),
+            TelemetryFrame(tick=4, link_active=True, vision_confidence=0.91, joint_temp_c=46.5, actuator_current_a=5.65, fault_injected="BEARING_FRICTION_DRIFT"),
+            TelemetryFrame(tick=5, link_active=True, vision_confidence=0.91, joint_temp_c=49.2, actuator_current_a=5.90, fault_injected="BEARING_FRICTION_DRIFT"),
+        ]
     raise HTTPException(
         status_code=404,
         detail=f"Unknown preset '{preset_name}'. Choose from: nominal, glare_recovery, blackout_safe_hold.",

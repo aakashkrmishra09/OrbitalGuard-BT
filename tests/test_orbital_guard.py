@@ -119,3 +119,12 @@ def test_root_and_preset_simulation_endpoints():
     blackout_resp = client.post("/simulation/run-preset/blackout_safe_hold")
     assert blackout_resp.status_code == 200
     assert blackout_resp.json()["final_mode"] == "SAFE_HOLD"
+
+def test_simplex_ml_intercepts_subtle_bearing_drift_before_hard_limit():
+    client = TestClient(app)
+    resp = client.post("/simulation/run-preset/subtle_bearing_drift")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["final_mode"] == "PREEMPTIVE_HOLD"
+    assert data["last_fault_code"] == "ADVISORY_MULTI_SENSOR_DRIFT"
+    assert any(step["mode"] == "PREEMPTIVE_HOLD" for step in data["history"])

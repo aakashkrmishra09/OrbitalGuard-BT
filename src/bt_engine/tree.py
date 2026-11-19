@@ -1,139 +1,170 @@
+from collections import deque
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Optional
 
+from src.anomaly_engine.detector import SimplexAnomalyDetector
 from src.mission_planner.validator import MissionCommand
-from src.perception_sim.telemetry import TelemetryFrame, TelemetryStream
-
-
-class NodeStatus(str, Enum):
-    RUNNING = "RUNNING"
-    SUCCESS = "SUCCESS"
-    FAILURE = "FAILURE"
+from src.perception_sim.telemetry import TelemetryFrame, is_frame_healthy
 
 
 class SystemMode(str, Enum):
-    IDLE = "IDLE"
     NOMINAL_INSPECTION = "NOMINAL_INSPECTION"
     HOLD_REACQUIRE = "HOLD_REACQUIRE"
+    PREEMPTIVE_HOLD = "PREEMPTIVE_HOLD"
     SAFE_HOLD = "SAFE_HOLD"
     COMPLETED = "COMPLETED"
 
 
 @dataclass
-class TickRecord:
+class StepRecord:
     tick: int
-    mode: SystemMode
+    mode: str
     active_node: str
-    status: NodeStatus
-    reason: str
+    status: str
     vision_confidence: float
     link_active: bool
+    reason: str
+    anomaly_severity: float = 0.0
+    anomaly_driver: str = "Nominal"
 
 
 @dataclass
 class BehaviourTreeController:
     mission: MissionCommand
-    target_ticks: int = 5
-    mode: SystemMode = SystemMode.IDLE
-    completed_inspection_ticks: int = 0
+    target_ticks: int = 3
+    max_reacquire_retries: int = 2
+    mode: SystemMode = SystemMode.NOMINAL_INSPECTION
+    completed_ticks: int = 0
     reacquire_attempts: int = 0
-    max_reacquire_attempts: int = 3
-    history: list[TickRecord] = field(default_factory=list)
-    last_fault_code: Optional[str] = None
+    last_fault_code: str | None = None
+    history: list[StepRecord] = field(default_factory=list)
+    detector: SimplexAnomalyDetector = field(default_factory=SimplexAnomalyDetector)
+    _anomaly_window: deque[bool] = field(default_factory=lambda: deque(maxlen=3))
 
-    def step(self, frame: TelemetryFrame) -> TickRecord:
+    def step(self, frame: TelemetryFrame) -> StepRecord:
+        # 1. LATCHED SAFE_HOLD OVERRIDE (Non-bypassable)
         if self.mode == SystemMode.SAFE_HOLD:
-            record = TickRecord(
+            rec = StepRecord(
                 tick=frame.tick,
-                mode=SystemMode.SAFE_HOLD,
-                active_node="SafeHoldLatch",
-                status=NodeStatus.RUNNING,
-                reason=f"Latched in SAFE_HOLD ({self.last_fault_code or 'CRITICAL_FAULT'})",
+                mode=self.mode.value,
+                active_node="SafeHoldLatchNode",
+                status="RUNNING",
                 vision_confidence=frame.vision_confidence,
                 link_active=frame.link_active,
+                reason=f"Latched in SAFE_HOLD ({self.last_fault_code})",
+                anomaly_severity=1.0,
+                anomaly_driver=self.last_fault_code or "SAFE_HOLD",
             )
-            self.history.append(record)
-            return record
+            self.history.append(rec)
+            return rec
 
-        healthy, condition = TelemetryStream.is_frame_healthy(frame)
+        # 2. DETERMINISTIC HARD SAFETY EVALUATION (Authoritative Layer 1)
+        healthy, fault_code, detail = is_frame_healthy(frame)
 
-        if condition in {
+        # Critical hardware/link faults immediately latch SAFE_HOLD
+        if not healthy and fault_code in {
             "FAULT_TELEMETRY_BLACKOUT",
             "FAULT_THERMAL_EXCURSION",
             "FAULT_ACTUATOR_OVERCURRENT",
         }:
             self.mode = SystemMode.SAFE_HOLD
-            self.last_fault_code = condition
-            record = TickRecord(
+            self.last_fault_code = fault_code
+            rec = StepRecord(
                 tick=frame.tick,
-                mode=SystemMode.SAFE_HOLD,
-                active_node="CriticalFaultSafeHold",
-                status=NodeStatus.FAILURE,
-                reason=f"Entered SAFE_HOLD due to {condition}",
+                mode=self.mode.value,
+                active_node="CriticalFaultSafeHoldNode",
+                status="FAILURE",
                 vision_confidence=frame.vision_confidence,
                 link_active=frame.link_active,
+                reason=detail,
+                anomaly_severity=1.0,
+                anomaly_driver=fault_code,
             )
-            self.history.append(record)
-            return record
+            self.history.append(rec)
+            return rec
 
-        if condition == "DEGRADED_VISION_GLARE":
+        # Transient vision confidence loss -> bounded HOLD_REACQUIRE
+        if not healthy and fault_code == "FAULT_LOW_VISION_CONFIDENCE":
             self.reacquire_attempts += 1
-            if self.reacquire_attempts > self.max_reacquire_attempts:
+            self.last_fault_code = fault_code
+            if self.reacquire_attempts > self.max_reacquire_retries:
                 self.mode = SystemMode.SAFE_HOLD
-                self.last_fault_code = "EXCEEDED_GLARE_REACQUIRE_RETRIES"
-                record = TickRecord(
+                rec = StepRecord(
                     tick=frame.tick,
-                    mode=SystemMode.SAFE_HOLD,
-                    active_node="GlareEscalationSafeHold",
-                    status=NodeStatus.FAILURE,
-                    reason="Max vision re-acquisition attempts exceeded under glare",
+                    mode=self.mode.value,
+                    active_node="ReacquireBudgetExceededNode",
+                    status="FAILURE",
                     vision_confidence=frame.vision_confidence,
                     link_active=frame.link_active,
+                    reason="Exceeded vision re-acquisition retry budget; latching SAFE_HOLD",
+                    anomaly_severity=1.0,
+                    anomaly_driver=fault_code,
                 )
-                self.history.append(record)
-                return record
+            else:
+                self.mode = SystemMode.HOLD_REACQUIRE
+                rec = StepRecord(
+                    tick=frame.tick,
+                    mode=self.mode.value,
+                    active_node="HoldAndReacquireNode",
+                    status="RUNNING",
+                    vision_confidence=frame.vision_confidence,
+                    link_active=frame.link_active,
+                    reason=f"{detail} (retry {self.reacquire_attempts}/{self.max_reacquire_retries})",
+                    anomaly_severity=0.75,
+                    anomaly_driver=fault_code,
+                )
+            self.history.append(rec)
+            return rec
 
-            self.mode = SystemMode.HOLD_REACQUIRE
-            record = TickRecord(
+        # 3. SIMPLEX ADVISORY ML LAYER (Layer 2: Multi-sensor drift inside safe bounds)
+        assessment = self.detector.score_frame(frame)
+        self._anomaly_window.append(assessment.is_anomalous)
+
+        # M-of-N hysteresis: require 2 of last 3 ticks anomalous to trigger PREEMPTIVE_HOLD
+        if sum(self._anomaly_window) >= 2:
+            self.mode = SystemMode.PREEMPTIVE_HOLD
+            self.last_fault_code = "ADVISORY_MULTI_SENSOR_DRIFT"
+            rec = StepRecord(
                 tick=frame.tick,
-                mode=SystemMode.HOLD_REACQUIRE,
-                active_node="HoldAndAdjustPose",
-                status=NodeStatus.RUNNING,
-                reason=(
-                    f"Low vision confidence ({frame.vision_confidence:.2f}); "
-                    f"holding pose (attempt {self.reacquire_attempts}/{self.max_reacquire_attempts})"
-                ),
+                mode=self.mode.value,
+                active_node="SimplexAnomalyPreemptiveHoldNode",
+                status="RUNNING",
                 vision_confidence=frame.vision_confidence,
                 link_active=frame.link_active,
+                reason=(
+                    f"Early multi-sensor drift intercepted before hard threshold breach "
+                    f"(p={assessment.p_value}, driver: {assessment.primary_driver})"
+                ),
+                anomaly_severity=assessment.severity,
+                anomaly_driver=assessment.primary_driver,
             )
-            self.history.append(record)
-            return record
+            self.history.append(rec)
+            return rec
 
-        assert healthy
+        # 4. NOMINAL EXECUTION
         self.reacquire_attempts = 0
-        self.completed_inspection_ticks += 1
-
-        if self.completed_inspection_ticks >= self.target_ticks:
+        self.completed_ticks += 1
+        if self.completed_ticks >= self.target_ticks:
             self.mode = SystemMode.COMPLETED
-            status = NodeStatus.SUCCESS
-            reason = f"Completed target inspection ({self.completed_inspection_ticks}/{self.target_ticks} ticks)"
+            node = "MissionCompleteNode"
+            status = "SUCCESS"
+            reason = f"Completed {self.completed_ticks}/{self.target_ticks} nominal ticks"
         else:
             self.mode = SystemMode.NOMINAL_INSPECTION
-            status = NodeStatus.RUNNING
-            reason = (
-                f"Inspecting sector {self.mission.target_sector} "
-                f"({self.completed_inspection_ticks}/{self.target_ticks} ticks)"
-            )
+            node = "NominalInspectionStepNode"
+            status = "RUNNING"
+            reason = f"Nominal inspection progress ({self.completed_ticks}/{self.target_ticks})"
 
-        record = TickRecord(
+        rec = StepRecord(
             tick=frame.tick,
-            mode=self.mode,
-            active_node="SectorInspectionSequence",
+            mode=self.mode.value,
+            active_node=node,
             status=status,
-            reason=reason,
             vision_confidence=frame.vision_confidence,
             link_active=frame.link_active,
+            reason=reason,
+            anomaly_severity=assessment.severity,
+            anomaly_driver=assessment.primary_driver if assessment.is_anomalous else "Nominal",
         )
-        self.history.append(record)
-        return record
+        self.history.append(rec)
+        return rec
